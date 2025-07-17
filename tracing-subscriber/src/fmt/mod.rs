@@ -846,6 +846,20 @@ impl<T, F, W> SubscriberBuilder<format::JsonFields, format::Format<format::Json,
             inner: self.inner.flatten_span_list(flatten_span_list),
         }
     }
+
+    /// Formats matching fields of the span list at root level, overwritting
+    /// colliding fields from root to leaf.
+    ///
+    /// See [`format::Json`]
+    pub fn flatten_matching_fields(
+        self,
+        flatten_matching_fields: Vec<String>,
+    ) -> SubscriberBuilder<format::JsonFields, format::Format<format::Json, T>, F, W> {
+        SubscriberBuilder {
+            filter: self.filter,
+            inner: self.inner.flatten_matching_fields(flatten_matching_fields),
+        }
+    }
 }
 
 #[cfg(feature = "env-filter")]
