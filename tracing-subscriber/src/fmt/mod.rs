@@ -853,11 +853,11 @@ impl<T, F, W> SubscriberBuilder<format::JsonFields, format::Format<format::Json,
     /// See [`format::Json`]
     pub fn flatten_matching_fields(
         self,
-        flatten_matching_fields: Vec<String>,
+        predicate: Box<dyn Fn(&str) -> bool>,
     ) -> SubscriberBuilder<format::JsonFields, format::Format<format::Json, T>, F, W> {
         SubscriberBuilder {
             filter: self.filter,
-            inner: self.inner.flatten_matching_fields(flatten_matching_fields),
+            inner: self.inner.flatten_matching_fields(predicate),
         }
     }
 }

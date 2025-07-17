@@ -915,14 +915,17 @@ impl<T> Format<Json, T> {
         self
     }
 
-    /// Formats all fields of the span list at root level, overwritting
+    /// Formats matching fields of the span list at root level, overwritting
     /// colliding fields from root to leaf.
     ///
     /// See [`format::Json`][Json]
     #[cfg(feature = "json")]
     #[cfg_attr(docsrs, doc(cfg(feature = "json")))]
-    pub fn flatten_matching_fields(mut self, fields: Vec<String>) -> Format<Json, T> {
-        self.format.flatten_matching_fields(fields);
+    pub fn flatten_matching_fields(
+        mut self,
+        predicate: Box<dyn Fn(&str) -> bool>,
+    ) -> Format<Json, T> {
+        self.format.flatten_matching_fields(predicate);
         self
     }
 }

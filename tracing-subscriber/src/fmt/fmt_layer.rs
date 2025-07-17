@@ -694,10 +694,10 @@ impl<S, T, W> Layer<S, format::JsonFields, format::Format<format::Json, T>, W> {
     /// See [`format::Json`][super::format::Json]
     pub fn flatten_matching_fields(
         self,
-        fields: Vec<String>,
+        predicate: Box<dyn Fn(&str) -> bool>,
     ) -> Layer<S, format::JsonFields, format::Format<format::Json, T>, W> {
         Layer {
-            fmt_event: self.fmt_event.flatten_matching_fields(fields),
+            fmt_event: self.fmt_event.flatten_matching_fields(predicate),
             fmt_fields: format::JsonFields::new(),
             ..self
         }

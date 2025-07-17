@@ -86,14 +86,25 @@ use tracing_log::NormalizeEvent;
 /// [`valuable`]: https://crates.io/crates/valuable
 /// [unstable]: crate#unstable-features
 /// [`valuable::Valuable`]: https://docs.rs/valuable/latest/valuable/trait.Valuable.html
-#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Json {
     pub(crate) flatten_event: bool,
     pub(crate) display_current_span: bool,
     pub(crate) display_span_list: bool,
     pub(crate) flatten_current_span: bool,
     pub(crate) flatten_span_list: bool,
-    pub(crate) flatten_matching_fields: Vec<String>,
+    pub(crate) flatten_matching_fields: Option<Box<dyn Fn(&str) -> bool>>,
+}
+
+impl std::fmt::Debug for Json {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Json")
+            .field("flatten_event", &self.flatten_event)
+            .field("display_current_span", &self.display_current_span)
+            .field("display_span_list", &self.display_span_list)
+            .field("flatten_current_span", &self.flatten_current_span)
+            .field("flatten_span_list", &self.flatten_span_list)
+            .finish()
+    }
 }
 
 impl Json {
@@ -124,14 +135,14 @@ impl Json {
     }
 
     /// If set to `true`, the span list will be flattened into the root object.
-    pub fn flatten_matching_fields(&mut self, flatten_matching_fields: Vec<String>) {
-        self.flatten_matching_fields = flatten_matching_fields;
+    pub fn flatten_matching_fields(&mut self, predicate: Box<dyn Fn(&str) -> bool>) {
+        self.flatten_matching_fields = Some(Box::new(predicate));
     }
 }
 
 struct SerializableContext<'a, 'b, Span, N>(
     &'b crate::layer::Context<'a, Span>,
-    &'a [String],
+    Option<&'a dyn Fn(&str) -> bool>,
     std::marker::PhantomData<N>,
 )
 where
@@ -162,7 +173,7 @@ where
 
 struct SerializableSpan<'a, 'b, Span, N>(
     &'b crate::registry::SpanRef<'a, Span>,
-    &'a [String],
+    Option<&'a dyn Fn(&str) -> bool>,
     std::marker::PhantomData<N>,
 )
 where
@@ -177,7 +188,7 @@ where
     fn serialize_fields<Ser>(
         &self,
         serializer: &mut Ser,
-        match_predicate: &[String],
+        match_predicate: Option<&dyn Fn(&str) -> bool>,
     ) -> Result<(), Ser::Error>
     where
         Ser: serde::ser::SerializeMap,
@@ -194,10 +205,15 @@ where
         // rather have a uglier fix now rather than shipping broken JSON.
         match serde_json::from_str::<serde_json::Value>(data) {
             Ok(serde_json::Value::Object(fields)) => {
-                for field in fields {
-                    if match_predicate.contains(&field.0) {
+                if let Some(match_predicate) = match_predicate {
+                    for field in fields {
+                        if match_predicate(&field.0) {
+                            serializer.serialize_entry(&field.0, &field.1)?;
+                        }
+                    }
+                } else {
+                    for field in fields {
                         serializer.serialize_entry(&field.0, &field.1)?;
-
                     }
                 }
             }
@@ -334,13 +350,13 @@ where
                 if let Some(ref span) = current_span {
                     let serializable_span = SerializableSpan(
                         span,
-                        &self.format.flatten_matching_fields,
+                        self.format.flatten_matching_fields.as_deref(),
                         format_field_marker,
                     );
                     if self.format.flatten_current_span {
                         serializable_span.serialize_fields(
                             &mut serializer,
-                            &self.format.flatten_matching_fields,
+                            self.format.flatten_matching_fields.as_deref(),
                         )?;
                     } else {
                         serializer
@@ -356,12 +372,12 @@ where
                         for span in leaf_span.scope().from_root() {
                             SerializableSpan(
                                 &span,
-                                &self.format.flatten_matching_fields,
+                                self.format.flatten_matching_fields.as_deref(),
                                 format_field_marker,
                             )
                             .serialize_fields(
                                 &mut serializer,
-                                &self.format.flatten_matching_fields,
+                                self.format.flatten_matching_fields.as_deref(),
                             )?;
                         }
                     }
@@ -370,7 +386,7 @@ where
                         "spans",
                         &SerializableContext(
                             &ctx.ctx,
-                            &self.format.flatten_matching_fields,
+                            self.format.flatten_matching_fields.as_deref(),
                             format_field_marker,
                         ),
                     )?;
@@ -413,7 +429,7 @@ impl Default for Json {
             display_span_list: true,
             flatten_current_span: false,
             flatten_span_list: false,
-            flatten_matching_fields: Vec::new(),
+            flatten_matching_fields: None,
         }
     }
 }
