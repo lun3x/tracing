@@ -914,6 +914,17 @@ impl<T> Format<Json, T> {
         self.format.flatten_span_list(flatten_span_list);
         self
     }
+
+    /// Formats all fields of the span list at root level, overwritting
+    /// colliding fields from root to leaf.
+    ///
+    /// See [`format::Json`][Json]
+    #[cfg(feature = "json")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "json")))]
+    pub fn flatten_matching_fields(mut self, fields: Vec<String>) -> Format<Json, T> {
+        self.format.flatten_matching_fields(fields);
+        self
+    }
 }
 
 impl<S, N, T> FormatEvent<S, N> for Format<Full, T>

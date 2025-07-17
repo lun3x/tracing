@@ -687,6 +687,21 @@ impl<S, T, W> Layer<S, format::JsonFields, format::Format<format::Json, T>, W> {
             ..self
         }
     }
+
+    /// Formats matching fields of the span list at root level, overwritting
+    /// colliding fields from root to leaf.
+    ///
+    /// See [`format::Json`][super::format::Json]
+    pub fn flatten_matching_fields(
+        self,
+        fields: Vec<String>,
+    ) -> Layer<S, format::JsonFields, format::Format<format::Json, T>, W> {
+        Layer {
+            fmt_event: self.fmt_event.flatten_matching_fields(fields),
+            fmt_fields: format::JsonFields::new(),
+            ..self
+        }
+    }
 }
 
 impl<S, N, E, W> Layer<S, N, E, W> {

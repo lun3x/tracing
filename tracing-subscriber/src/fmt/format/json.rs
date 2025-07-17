@@ -86,13 +86,14 @@ use tracing_log::NormalizeEvent;
 /// [`valuable`]: https://crates.io/crates/valuable
 /// [unstable]: crate#unstable-features
 /// [`valuable::Valuable`]: https://docs.rs/valuable/latest/valuable/trait.Valuable.html
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Json {
     pub(crate) flatten_event: bool,
     pub(crate) display_current_span: bool,
     pub(crate) display_span_list: bool,
     pub(crate) flatten_current_span: bool,
     pub(crate) flatten_span_list: bool,
+    pub(crate) flatten_matching_fields: Vec<String>,
 }
 
 impl Json {
@@ -121,10 +122,16 @@ impl Json {
     pub fn flatten_span_list(&mut self, flatten_span_list: bool) {
         self.flatten_span_list = flatten_span_list;
     }
+
+    /// If set to `true`, the span list will be flattened into the root object.
+    pub fn flatten_matching_fields(&mut self, flatten_matching_fields: Vec<String>) {
+        self.flatten_matching_fields = flatten_matching_fields;
+    }
 }
 
 struct SerializableContext<'a, 'b, Span, N>(
     &'b crate::layer::Context<'a, Span>,
+    &'a [String],
     std::marker::PhantomData<N>,
 )
 where
@@ -145,7 +152,7 @@ where
 
         if let Some(leaf_span) = self.0.lookup_current() {
             for span in leaf_span.scope().from_root() {
-                serializer.serialize_element(&SerializableSpan(&span, self.1))?;
+                serializer.serialize_element(&SerializableSpan(&span, self.1, self.2))?;
             }
         }
 
@@ -155,6 +162,7 @@ where
 
 struct SerializableSpan<'a, 'b, Span, N>(
     &'b crate::registry::SpanRef<'a, Span>,
+    &'a [String],
     std::marker::PhantomData<N>,
 )
 where
@@ -166,7 +174,11 @@ where
     Span: for<'lookup> crate::registry::LookupSpan<'lookup>,
     N: for<'writer> FormatFields<'writer> + 'static,
 {
-    fn serialize_fields<Ser>(&self, serializer: &mut Ser) -> Result<(), Ser::Error>
+    fn serialize_fields<Ser>(
+        &self,
+        serializer: &mut Ser,
+        match_predicate: &[String],
+    ) -> Result<(), Ser::Error>
     where
         Ser: serde::ser::SerializeMap,
     {
@@ -183,7 +195,10 @@ where
         match serde_json::from_str::<serde_json::Value>(data) {
             Ok(serde_json::Value::Object(fields)) => {
                 for field in fields {
-                    serializer.serialize_entry(&field.0, &field.1)?;
+                    if match_predicate.contains(&field.0) {
+                        serializer.serialize_entry(&field.0, &field.1)?;
+
+                    }
                 }
             }
             // We have fields for this span which are valid JSON but not an object.
@@ -230,7 +245,7 @@ where
         Ser: serde::ser::Serializer,
     {
         let mut serializer = serializer.serialize_map(None)?;
-        self.serialize_fields(&mut serializer)?;
+        self.serialize_fields(&mut serializer, self.1)?;
         // The span name is not a field and will only
         // be provided if the span is not flattened
         // at root level.
@@ -317,9 +332,16 @@ where
 
             if self.format.display_current_span {
                 if let Some(ref span) = current_span {
-                    let serializable_span = SerializableSpan(span, format_field_marker);
+                    let serializable_span = SerializableSpan(
+                        span,
+                        &self.format.flatten_matching_fields,
+                        format_field_marker,
+                    );
                     if self.format.flatten_current_span {
-                        serializable_span.serialize_fields(&mut serializer)?;
+                        serializable_span.serialize_fields(
+                            &mut serializer,
+                            &self.format.flatten_matching_fields,
+                        )?;
                     } else {
                         serializer
                             .serialize_entry("span", &serializable_span)
@@ -332,14 +354,25 @@ where
                 if self.format.flatten_span_list {
                     if let Some(leaf_span) = ctx.ctx.lookup_current() {
                         for span in leaf_span.scope().from_root() {
-                            SerializableSpan(&span, format_field_marker)
-                                .serialize_fields(&mut serializer)?;
+                            SerializableSpan(
+                                &span,
+                                &self.format.flatten_matching_fields,
+                                format_field_marker,
+                            )
+                            .serialize_fields(
+                                &mut serializer,
+                                &self.format.flatten_matching_fields,
+                            )?;
                         }
                     }
                 } else {
                     serializer.serialize_entry(
                         "spans",
-                        &SerializableContext(&ctx.ctx, format_field_marker),
+                        &SerializableContext(
+                            &ctx.ctx,
+                            &self.format.flatten_matching_fields,
+                            format_field_marker,
+                        ),
                     )?;
                 }
             }
@@ -380,6 +413,7 @@ impl Default for Json {
             display_span_list: true,
             flatten_current_span: false,
             flatten_span_list: false,
+            flatten_matching_fields: Vec::new(),
         }
     }
 }
